@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple PDF Editor</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="pdf-icon">PDF</span><div><b>PDF Editor</b><small>Local document editor</small></div></div>
+  <div class="head-actions">
+    <label class="open-btn">Open PDF<input id="file" type="file" accept="application/pdf"></label>
+    <button id="download" class="primary" disabled>Download edited PDF</button>
+  </div>
+</header>
+<main>
+  <aside>
+    <h3>Text on this page</h3>
+    <p class="muted">Click text on the page or choose a segment here. Table text may appear as separate items.</p>
+    <div id="block-list" class="block-list"><div class="empty">Open a PDF to begin.</div></div>
+    <hr>
+    <h3>Text formatting</h3>
+    <label>Font
+      <input id="font-search" type="search" placeholder="Search installed fonts..." autocomplete="off">
+      <select id="font">
+        <option value="original">Original PDF font</option>
+      </select>
+    </label>
+    <div class="two">
+      <label>Size (pt)<input id="size" type="number" min="4" max="96" value="11"></label>
+      <label>Color<input id="color" type="color" value="#000000"></label>
+    </div>
+    <label>Word spacing (pt)
+      <input id="word-spacing" type="number" min="0" step="0.1" placeholder="Original">
+    </label>
+    <p class="muted">Leave blank to keep the PDF spacing. Enter a value to set the gap between words.</p>
+    <label>Alignment
+      <select id="align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+    </label>
+    <label>Replace with
+      <textarea id="replacement" rows="4" placeholder="Select text on the page, then enter replacement text..."></textarea>
+    </label>
+    <button id="apply" class="primary" disabled>Apply change</button>
+    <div class="history-actions">
+      <button id="undo" class="secondary" type="button" disabled>Undo</button>
+      <button id="redo" class="secondary" type="button" disabled>Redo</button>
+    </div>
+    <button id="clear" class="secondary">Clear selection</button>
+    <p class="hint">Preview changes as you edit. Apply to keep them; Undo and Redo affect applied changes. If nearby text overlaps, the editor will refuse the edit rather than remove it.</p>
+  </aside>
+  <section class="workspace">
+    <div class="toolbar">
+      <button id="prev" disabled>← Previous</button>
+      <span id="page-label">Page – / –</span>
+      <button id="next" disabled>Next →</button>
+      <span class="spacer"></span><span id="filename" class="muted">No PDF opened</span>
+    </div>
+    <div id="canvas-wrap"><div class="welcome"><div class="big">PDF</div><h2>Open a PDF to start editing</h2><p>Your document is processed by this local application.</p></div></div>
+  </section>
+</main>
+<div id="toast"></div>
+<script src="/app.js"></script>
+</body></html>
