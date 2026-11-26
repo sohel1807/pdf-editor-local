@@ -74,7 +74,7 @@ The browser keeps the selected original PDF in memory. It is uploaded to the Mod
 
 The temporary server copy is deleted when **Close PDF** is clicked or another PDF is opened. Closing the browser also attempts cleanup; that request is best-effort. The API sweeps sessions after 30 minutes of inactivity when it next receives a request, and Modal scales the container down after five idle minutes, which also discards its temporary files. Reopen the PDF if the Modal container restarts or scales down during editing. Do not attach a Modal Volume or other persistent storage to this app.
 
-This deployment is intended for a small trusted group sharing one password, not open public access. The browser asks for the password and keeps it only in memory. The API is limited to one Modal container to keep temporary document sessions available, so requests may queue during concurrent use. CORS is restricted to the configured Vercel origin; the password is still required.
+This deployment is intended for a small trusted group sharing one password, not open public access. The Vercel page has a masked shared-password field and sends its value only with API requests; it is not saved in browser storage. The API is limited to one Modal container to keep temporary document sessions available, so requests may queue during concurrent use. CORS is restricted to the configured Vercel origin; the password is still required.
 
 1. Deploy this repository to Vercel. Keep the project root at the repository root; `vercel.json` publishes the `static/` directory. Note the production Vercel URL.
 2. Install and authenticate the Modal CLI:
@@ -92,7 +92,7 @@ This deployment is intended for a small trusted group sharing one password, not 
    modal secret create simple-pdf-editor-secrets "PDF_EDITOR_SHARED_PASSWORD=$password" "PDF_EDITOR_ALLOWED_ORIGINS=https://your-project.vercel.app"
    ```
 
-   Share the password securely with the trusted group; the app prompts for it when each person opens a PDF. Do not commit the password.
+   Share the password securely with the trusted group; each person enters it in the Vercel page's shared-password field. Do not commit the password.
 4. Deploy the API:
 
    ```powershell
@@ -105,7 +105,7 @@ This deployment is intended for a small trusted group sharing one password, not 
    window.PDF_API_BASE_URL = "https://your-modal-endpoint.modal.run";
    ```
 
-6. Open the Vercel site, select a PDF, and enter the shared password when prompted. Click **Close PDF** when finished to remove the temporary server copy immediately.
+6. Open the Vercel site, enter the shared password, select a PDF, and click **Close PDF** when finished to remove the temporary server copy immediately.
 
 The Modal endpoint is not deployed from this environment; you must run the commands using your own Modal and Vercel accounts.
 

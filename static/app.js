@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 const API_BASE_URL=String(window.PDF_API_BASE_URL||"").replace(/\/+$/,"");
-let docId=null, page=0, pages=0, filename="", blocks=[], pageSize=null, edits={}, selectedKey=null, selectedAdditionKey=null, draftChanged=false, undoStack=[], redoStack=[], accessToken="", pageImageUrl=null;
+if(API_BASE_URL)$("access-password").hidden=false;
+let docId=null, page=0, pages=0, filename="", blocks=[], pageSize=null, edits={}, selectedKey=null, selectedAdditionKey=null, draftChanged=false, undoStack=[], redoStack=[], pageImageUrl=null;
 let addingText=false, additionLocation=null, drawingArea=null;
 let previewTimer=null, previewAbort=null, previewUrl=null, previewSequence=0;
 let availableFonts=[];
@@ -10,14 +11,11 @@ function toast(msg){$("toast").textContent=msg;$("toast").style.display="block";
 async function api(url,opts={}){
  const request=()=>{
   const headers=new Headers(opts.headers||{});
-  if(accessToken)headers.set("Authorization",`Bearer ${accessToken}`);
+  const password=$("access-password").value;
+  if(password)headers.set("Authorization",`Bearer ${password}`);
   return fetch(`${API_BASE_URL}${url}`,{...opts,headers});
  };
- let response=await request();
- if(response.status===401){
-  accessToken=window.prompt("Enter the shared PDF editor password.")||"";
-  if(accessToken)response=await request();
- }
+ const response=await request();
  if(!response.ok){
   let message="Request failed";
   try{const data=await response.json();message=data.detail||message}catch{}
@@ -28,7 +26,8 @@ async function api(url,opts={}){
 function closeTemporarySessionOnExit(){
  if(!docId)return;
  const headers=new Headers();
- if(accessToken)headers.set("Authorization",`Bearer ${accessToken}`);
+ const password=$("access-password").value;
+ if(password)headers.set("Authorization",`Bearer ${password}`);
  fetch(`${API_BASE_URL}/api/document/${docId}`,{method:"DELETE",headers,keepalive:true})
   .catch(error=>console.warn(`Temporary PDF cleanup will rely on expiry: ${error.message}`));
 }
@@ -112,6 +111,10 @@ function changeHistory(from,to,message){
 }
 $("file").addEventListener("change",async e=>{
  const f=e.target.files[0];if(!f)return;
+ if(API_BASE_URL&&!$("access-password").value){
+  toast("Enter the shared password, then choose the PDF again.");
+  $("file").value="";return;
+ }
  if(f.size>50*1024*1024){toast("For this prototype, choose a PDF smaller than 50 MB.");return}
  try{
   if(docId)await closeCurrentDocument(false);
@@ -120,7 +123,7 @@ $("file").addEventListener("change",async e=>{
   docId=d.id;originalFile=f;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;updateHistoryButtons();
   $("filename").textContent=filename;$("download").disabled=false;$("close-document").disabled=false;$("add-text").disabled=false;$("prev").disabled=false;$("next").disabled=pages<2;
   await loadPage();toast("PDF opened successfully.");
- }catch(err){toast(err.message)}
+ }catch(err){$("file").value="";toast(err.message)}
 });
 let originalFile=null;
 async function closeCurrentDocument(showToast=true){
