@@ -12,7 +12,12 @@ async function api(url,opts={}){
  const request=()=>{
   const headers=new Headers(opts.headers||{});
   const password=$("access-password").value;
-  if(password)headers.set("Authorization",`Bearer ${password}`);
+  if(password){
+   if(/[^\x20-\x7E]/.test(password)){
+    throw new Error("Shared password must use visible ASCII characters. Set an ASCII password in the Modal Secret and redeploy.");
+   }
+   headers.set("Authorization",`Bearer ${password}`);
+  }
   return fetch(`${API_BASE_URL}${url}`,{...opts,headers});
  };
  const response=await request();
