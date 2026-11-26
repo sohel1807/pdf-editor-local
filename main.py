@@ -4,12 +4,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fontTools.ttLib import TTCollection, TTFont, TTLibError
 import fitz
-import atexit
 from functools import lru_cache
-import hashlib, io, logging, math, os, platform, re, secrets, tempfile, threading, time, uuid
+import hashlib, io, logging, math, os, platform, re, uuid
 
 app = FastAPI(title="Simple PDF Editor")
-WORK = os.path.join(tempfile.gettempdir(), "simple-pdf-editor")
+WORK = os.path.join(os.path.dirname(__file__), "work")
 os.makedirs(WORK, exist_ok=True)
 logger = logging.getLogger(__name__)
 MAX_PDF_BYTES = 50 * 1024 * 1024
@@ -266,8 +265,6 @@ def resolve_edit_font(doc, page, font_choice, original_font, font_cache, origina
 
 
 documents = {}
-document_last_access = {}
-documents_lock = threading.Lock()
 
 class EditRequest(BaseModel):
     edits: list[dict]
@@ -859,5 +856,4 @@ def export_pdf(doc_id: str, request: EditRequest):
     )
 
 
-if os.environ.get("PDF_EDITOR_SERVE_STATIC", "1") == "1":
-    app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="static")
+app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="static")
