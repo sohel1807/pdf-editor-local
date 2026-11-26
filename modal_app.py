@@ -3,7 +3,7 @@ import os
 import modal
 
 
-modal_app = modal.App("simple-pdf-editor")
+app = modal.App("simple-pdf-editor")
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install_from_requirements("requirements.txt")
@@ -11,7 +11,7 @@ image = (
 )
 
 
-@modal_app.function(
+@app.function(
     image=image,
     secrets=[modal.Secret.from_name("simple-pdf-editor-secrets")],
     max_containers=1,
