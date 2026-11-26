@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 import uuid
 
@@ -28,7 +29,7 @@ class RedactionSafetyTests(unittest.TestCase):
         main.documents[self.doc_id] = self.source_path
 
     def tearDown(self):
-        main.documents.pop(self.doc_id, None)
+        main.remove_document(self.doc_id)
         self.temp_dir.cleanup()
 
     def edit_for(self, block, replacement):

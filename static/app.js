@@ -95,15 +95,39 @@ function changeHistory(from,to,message){
 }
 $("file").addEventListener("change",async e=>{
  const f=e.target.files[0];if(!f)return;
+ if(API_BASE_URL&&!$("access-password").value){
+  toast("Enter the shared password, then choose the PDF again.");
+  $("file").value="";return;
+ }
  if(f.size>50*1024*1024){toast("For this prototype, choose a PDF smaller than 50 MB.");return}
  try{
+  if(docId)await closeCurrentDocument(false);
   const fd=new FormData();fd.append("file",f);
   const r=await api("/api/upload",{method:"POST",body:fd});const d=await r.json();
   docId=d.id;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;updateHistoryButtons();
   $("filename").textContent=filename;$("download").disabled=false;$("add-text").disabled=false;$("prev").disabled=false;$("next").disabled=pages<2;
   await loadPage();toast("PDF opened successfully.");
- }catch(err){toast(err.message)}
+ }catch(err){$("file").value="";toast(err.message)}
 });
+let originalFile=null;
+async function closeCurrentDocument(showToast=true){
+ if(docId){
+  try{await api(`/api/document/${docId}`,{method:"DELETE"})}
+  catch(error){if(error.status!==404)throw error}
+ }
+ docId=null;originalFile=null;page=0;pages=0;filename="";blocks=[];pageSize=null;edits={};selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;undoStack=[];redoStack=[];
+ clearTimeout(previewTimer);if(previewAbort)previewAbort.abort();previewSequence++;
+ if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null}
+ if(pageImageUrl){URL.revokeObjectURL(pageImageUrl);pageImageUrl=null}
+ $("filename").textContent="No PDF opened";$("download").disabled=true;$("close-document").disabled=true;$("add-text").disabled=true;
+ $("prev").disabled=true;$("next").disabled=true;$("page-label").textContent="Page – / –";
+ $("block-list").innerHTML='<div class="empty">Open a PDF to begin.</div>';
+ $("canvas-wrap").innerHTML='<div class="welcome"><div class="big">PDF</div><h2>Open a PDF to start editing</h2><p>Your document is processed temporarily by the configured PDF service.</p></div>';
+ $("replacement-label").textContent="Replace with";$("replacement").value="";$("replacement").placeholder="Select text on the page, then enter replacement text...";
+ $("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";
+ $("file").value="";updateHistoryButtons();
+ if(showToast)toast("Temporary PDF copy deleted.");
+}
 async function loadPage(){
  if(!docId)return;
  $("page-label").textContent=`Page ${page+1} / ${pages}`;
@@ -366,5 +390,6 @@ $("download").onclick=async()=>{
   toast("Edited PDF downloaded.");
  }catch(err){toast(err.message)}
 };
+window.addEventListener("pagehide",closeTemporarySessionOnExit);
 updateHistoryButtons();
 loadFonts();
