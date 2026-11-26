@@ -218,24 +218,3 @@ class RedactionSafetyTests(unittest.TestCase):
 
         self.assertIn("Exported note", text)
         self.assertIn("TARGET", text)
-
-    def test_removes_document_when_session_is_closed(self):
-        path = main.documents[self.doc_id]
-
-        result = main.close_document(self.doc_id)
-
-        self.assertEqual(result, {"status": "closed"})
-        self.assertNotIn(self.doc_id, main.documents)
-        self.assertFalse(os.path.exists(path))
-
-    def test_expires_idle_document_sessions(self):
-        path = main.documents[self.doc_id]
-        main.document_last_access[self.doc_id] = (
-            time.monotonic() - main.DOCUMENT_IDLE_TTL - 1
-        )
-
-        with self.assertRaises(main.HTTPException):
-            main.get_document_path(self.doc_id)
-
-        self.assertNotIn(self.doc_id, main.documents)
-        self.assertFalse(os.path.exists(path))

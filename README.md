@@ -6,7 +6,7 @@ A small browser-based PDF text editor for testing on a company laptop.
 - Opens a PDF from your computer.
 - Renders pages and extracts selectable text segments.
 - Lets you click a text segment on the rendered page (or select it from the list) and replace its text.
-- Lets you add single- or multi-line text to a blank area: choose **Fill blank area**, drag to select the exact writing area, then enter the text and apply it. The blue added-text area remains selectable so you can edit it again.
+- Lets you add single- or multi-line text to a blank area: choose **Fill blank area**, drag to select the writing area, enter text, and apply it. Click an added area to edit it again.
 - Lets you search fonts installed on this computer and choose available regular, bold, italic, and combined faces, along with size, color, alignment, and adjustable word spacing.
 - Shows a live preview rendered by the PDF engine while you edit, so embedded fonts and spacing match the exported PDF; download is still required to save the edited PDF.
 - Supports Undo and Redo for applied changes.
@@ -15,7 +15,7 @@ A small browser-based PDF text editor for testing on a company laptop.
 ## Important limitations
 This is a prototype, not a full Acrobat/Word replacement.
 - It edits extracted text segments, not arbitrary page objects, semantic table cells, or complete flowing paragraphs. Table text may need to be edited one segment at a time.
-- Added text is placed inside a fixed area on the page; it does not reflow existing content or automatically avoid nearby objects. Choose an actually blank area and review the preview before exporting.
+- Added text stays within the selected area; it does not reflow existing content or avoid nearby objects. Choose a blank area and review the preview before exporting.
 - It reuses the original PDF font when available, including a matching installed face when the PDF font is not embedded. Installed font files and collection faces are available as replacements. Word spacing is preserved by default and can be overridden in points; spacing that cannot fit the selected segment is rejected rather than allowed to overlap neighboring text.
 - Only fonts embedded in the PDF or installed on this computer can be used. No library can supply every proprietary font; a font absent from both sources cannot be reproduced exactly.
 - Some PDFs position words separately without storing spaces; extracted text adds spaces where their positions indicate a word gap. Exact original kerning and tracking may still differ.

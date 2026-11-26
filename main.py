@@ -1,5 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -14,7 +13,6 @@ WORK = os.path.join(tempfile.gettempdir(), "simple-pdf-editor")
 os.makedirs(WORK, exist_ok=True)
 logger = logging.getLogger(__name__)
 MAX_PDF_BYTES = 50 * 1024 * 1024
-DOCUMENT_IDLE_TTL = 30 * 60
 
 FONT_ALIASES = {
     "helvetica": "helv", "helveticabold": "hebo", "helveticaoblique": "heit",
@@ -275,108 +273,11 @@ class EditRequest(BaseModel):
     edits: list[dict]
 
 
-def remove_document(doc_id):
-    with documents_lock:
-        path = documents.get(doc_id)
-        if not path:
-            return
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
-        documents.pop(doc_id, None)
-        document_last_access.pop(doc_id, None)
-
-
-def cleanup_expired_documents():
-    now = time.monotonic()
-    with documents_lock:
-        expired = [
-            doc_id for doc_id, last_access in document_last_access.items()
-            if now - last_access >= DOCUMENT_IDLE_TTL
-        ]
-        for doc_id in expired:
-            path = documents.get(doc_id)
-            if path:
-                try:
-                    os.remove(path)
-                except FileNotFoundError:
-                    pass
-            documents.pop(doc_id, None)
-            document_last_access.pop(doc_id, None)
-
-
-def cleanup_all_documents():
-    with documents_lock:
-        doc_ids = list(documents)
-    for doc_id in doc_ids:
-        remove_document(doc_id)
-
-
 def get_document_path(doc_id):
-    cleanup_expired_documents()
-    with documents_lock:
-        path = documents.get(doc_id)
-        if path and os.path.isfile(path):
-            document_last_access[doc_id] = time.monotonic()
-            return path
-    raise HTTPException(404, "PDF session expired or was closed. Reopen the PDF to continue.")
-
-
-atexit.register(cleanup_all_documents)
-
-
-@app.middleware("http")
-async def protect_api_and_disable_caching(request: Request, call_next):
-    path = request.url.path
-    if (
-        path.startswith("/api/")
-        and path not in {"/api/health", "/api/fonts"}
-        and request.method != "OPTIONS"
-    ):
-        expected_token = os.environ.get("PDF_EDITOR_SHARED_PASSWORD", "")
-        required = os.environ.get("PDF_EDITOR_REQUIRE_AUTH") == "1"
-        if required and not expected_token:
-            return Response(
-                content='{"detail":"API access is not configured."}',
-                status_code=503,
-                media_type="application/json",
-                headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
-            )
-        if expected_token:
-            authorization = request.headers.get("authorization", "")
-            scheme, _, supplied_token = authorization.partition(" ")
-            if (
-                scheme.casefold() != "bearer"
-                or not secrets.compare_digest(supplied_token, expected_token)
-            ):
-                return Response(
-                    content='{"detail":"A valid shared password is required."}',
-                    status_code=401,
-                    media_type="application/json",
-                    headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
-                )
-    response = await call_next(request)
-    if path.startswith("/api/"):
-        response.headers["Cache-Control"] = "no-store, private"
-        response.headers["Pragma"] = "no-cache"
-    return response
-
-
-cors_origins = [
-    origin.strip()
-    for origin in os.environ.get(
-        "PDF_EDITOR_ALLOWED_ORIGINS",
-        "http://localhost:8000,http://127.0.0.1:8000,http://localhost:8001,http://127.0.0.1:8001",
-    ).split(",")
-    if origin.strip()
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
-)
+    path = documents.get(doc_id)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, "Document not found.")
+    return path
 
 
 @app.get("/api/health")
@@ -398,7 +299,6 @@ def get_fonts():
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    cleanup_expired_documents()
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         await file.close()
         raise HTTPException(400, "Please upload a PDF file.")
@@ -426,9 +326,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(400, "Password-protected PDFs are not supported in this prototype.")
     page_count = len(doc)
     doc.close()
-    with documents_lock:
-        documents[doc_id] = path
-        document_last_access[doc_id] = time.monotonic()
+    documents[doc_id] = path
     return {"id": doc_id, "pages": page_count, "filename": file.filename}
 
 @app.get("/api/document/{doc_id}/page/{page_num}")
@@ -960,11 +858,6 @@ def export_pdf(doc_id: str, request: EditRequest):
         headers={"Content-Disposition": 'attachment; filename="edited.pdf"'},
     )
 
-
-@app.delete("/api/document/{doc_id}")
-def close_document(doc_id: str):
-    remove_document(doc_id)
-    return {"status": "closed"}
 
 if os.environ.get("PDF_EDITOR_SERVE_STATIC", "1") == "1":
     app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="static")

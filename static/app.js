@@ -1,6 +1,4 @@
 const $ = id => document.getElementById(id);
-const API_BASE_URL=String(window.PDF_API_BASE_URL||"").replace(/\/+$/,"");
-if(API_BASE_URL)$("access-password").hidden=false;
 let docId=null, page=0, pages=0, filename="", blocks=[], pageSize=null, edits={}, selectedKey=null, selectedAdditionKey=null, draftChanged=false, undoStack=[], redoStack=[], pageImageUrl=null;
 let addingText=false, additionLocation=null, drawingArea=null;
 let previewTimer=null, previewAbort=null, previewUrl=null, previewSequence=0;
@@ -9,32 +7,13 @@ const keyFor=(p,k)=>`${p}:${k}`;
 const wordSpacingValue=()=>{const value=$("word-spacing").value.trim();return value===""?null:Number(value)};
 function toast(msg){$("toast").textContent=msg;$("toast").style.display="block";setTimeout(()=>$("toast").style.display="none",3200)}
 async function api(url,opts={}){
- const request=()=>{
-  const headers=new Headers(opts.headers||{});
-  const password=$("access-password").value;
-  if(password){
-   if(/[^\x20-\x7E]/.test(password)){
-    throw new Error("Shared password must use visible ASCII characters. Set an ASCII password in the Modal Secret and redeploy.");
-   }
-   headers.set("Authorization",`Bearer ${password}`);
-  }
-  return fetch(`${API_BASE_URL}${url}`,{...opts,headers});
- };
- const response=await request();
+ const response=await fetch(url,opts);
  if(!response.ok){
   let message="Request failed";
   try{const data=await response.json();message=data.detail||message}catch{}
-  const error=new Error(message);error.status=response.status;throw error;
+  throw new Error(message);
  }
  return response;
-}
-function closeTemporarySessionOnExit(){
- if(!docId)return;
- const headers=new Headers();
- const password=$("access-password").value;
- if(password)headers.set("Authorization",`Bearer ${password}`);
- fetch(`${API_BASE_URL}/api/document/${docId}`,{method:"DELETE",headers,keepalive:true})
-  .catch(error=>console.warn(`Temporary PDF cleanup will rely on expiry: ${error.message}`));
 }
 function copyEdits(source){
  const copy={};
@@ -125,8 +104,8 @@ $("file").addEventListener("change",async e=>{
   if(docId)await closeCurrentDocument(false);
   const fd=new FormData();fd.append("file",f);
   const r=await api("/api/upload",{method:"POST",body:fd});const d=await r.json();
-  docId=d.id;originalFile=f;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;updateHistoryButtons();
-  $("filename").textContent=filename;$("download").disabled=false;$("close-document").disabled=false;$("add-text").disabled=false;$("prev").disabled=false;$("next").disabled=pages<2;
+  docId=d.id;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;updateHistoryButtons();
+  $("filename").textContent=filename;$("download").disabled=false;$("add-text").disabled=false;$("prev").disabled=false;$("next").disabled=pages<2;
   await loadPage();toast("PDF opened successfully.");
  }catch(err){$("file").value="";toast(err.message)}
 });
@@ -398,7 +377,6 @@ $("apply").onclick=()=>{
 };
 $("undo").onclick=()=>changeHistory(undoStack,redoStack,"Last applied change undone.");
 $("redo").onclick=()=>changeHistory(redoStack,undoStack,"Change restored.");
-$("close-document").onclick=()=>closeCurrentDocument().catch(error=>toast(`Could not delete the temporary PDF: ${error.message}`));
 $("clear").onclick=()=>{selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("replacement").value="";$("replacement").placeholder="Select text on the page, then enter replacement text...";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";refreshPage()};
 $("prev").onclick=async()=>{if(page>0){page--;selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";await loadPage()}};
 $("next").onclick=async()=>{if(page<pages-1){page++;selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";await loadPage()}};
