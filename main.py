@@ -1,16 +1,20 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fontTools.ttLib import TTCollection, TTFont, TTLibError
 import fitz
+import atexit
 from functools import lru_cache
-import hashlib, io, logging, math, os, platform, re, uuid
+import hashlib, io, logging, math, os, platform, re, secrets, tempfile, threading, time, uuid
 
 app = FastAPI(title="Simple PDF Editor")
-WORK = os.path.join(os.path.dirname(__file__), "work")
+WORK = os.path.join(tempfile.gettempdir(), "simple-pdf-editor")
 os.makedirs(WORK, exist_ok=True)
 logger = logging.getLogger(__name__)
+MAX_PDF_BYTES = 50 * 1024 * 1024
+DOCUMENT_IDLE_TTL = 30 * 60
 
 FONT_ALIASES = {
     "helvetica": "helv", "helveticabold": "hebo", "helveticaoblique": "heit",
@@ -229,7 +233,7 @@ def resolve_edit_font(doc, page, font_choice, original_font, font_cache, origina
             "cobi", "tiro", "tibo", "tiit", "tibi", "symb", "zadb",
         }:
             raise HTTPException(400, "Choose a supported font.")
-        return font_choice, fitz.Font(fontname=font_choice)
+        return font_choice, fitz.Font(fontname=font_choice), None
 
     source_key = font_key(original_font)
     for font_info in page.get_fonts(full=True):
@@ -263,11 +267,117 @@ def resolve_edit_font(doc, page, font_choice, original_font, font_cache, origina
     raise HTTPException(400, f"Could not find the original PDF font '{original_font}'. Choose another font.")
 
 
-# Temporary in-memory mapping for this local prototype.
 documents = {}
+document_last_access = {}
+documents_lock = threading.Lock()
 
 class EditRequest(BaseModel):
     edits: list[dict]
+
+
+def remove_document(doc_id):
+    with documents_lock:
+        path = documents.get(doc_id)
+        if not path:
+            return
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        documents.pop(doc_id, None)
+        document_last_access.pop(doc_id, None)
+
+
+def cleanup_expired_documents():
+    now = time.monotonic()
+    with documents_lock:
+        expired = [
+            doc_id for doc_id, last_access in document_last_access.items()
+            if now - last_access >= DOCUMENT_IDLE_TTL
+        ]
+        for doc_id in expired:
+            path = documents.get(doc_id)
+            if path:
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+            documents.pop(doc_id, None)
+            document_last_access.pop(doc_id, None)
+
+
+def cleanup_all_documents():
+    with documents_lock:
+        doc_ids = list(documents)
+    for doc_id in doc_ids:
+        remove_document(doc_id)
+
+
+def get_document_path(doc_id):
+    cleanup_expired_documents()
+    with documents_lock:
+        path = documents.get(doc_id)
+        if path and os.path.isfile(path):
+            document_last_access[doc_id] = time.monotonic()
+            return path
+    raise HTTPException(404, "PDF session expired or was closed. Reopen the PDF to continue.")
+
+
+atexit.register(cleanup_all_documents)
+
+
+@app.middleware("http")
+async def protect_api_and_disable_caching(request: Request, call_next):
+    path = request.url.path
+    if (
+        path.startswith("/api/")
+        and path not in {"/api/health", "/api/fonts"}
+        and request.method != "OPTIONS"
+    ):
+        expected_token = os.environ.get("PDF_EDITOR_SHARED_PASSWORD", "")
+        required = os.environ.get("PDF_EDITOR_REQUIRE_AUTH") == "1"
+        if required and not expected_token:
+            return Response(
+                content='{"detail":"API access is not configured."}',
+                status_code=503,
+                media_type="application/json",
+                headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
+            )
+        if expected_token:
+            authorization = request.headers.get("authorization", "")
+            scheme, _, supplied_token = authorization.partition(" ")
+            if (
+                scheme.casefold() != "bearer"
+                or not secrets.compare_digest(supplied_token, expected_token)
+            ):
+                return Response(
+                    content='{"detail":"A valid shared password is required."}',
+                    status_code=401,
+                    media_type="application/json",
+                    headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
+                )
+    response = await call_next(request)
+    if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, private"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
+cors_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "PDF_EDITOR_ALLOWED_ORIGINS",
+        "http://localhost:8000,http://127.0.0.1:8000,http://localhost:8001,http://127.0.0.1:8001",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
 
 @app.get("/api/health")
 def health():
@@ -288,54 +398,66 @@ def get_fonts():
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
+    cleanup_expired_documents()
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        await file.close()
         raise HTTPException(400, "Please upload a PDF file.")
-    doc_id = str(uuid.uuid4())
-    path = os.path.join(WORK, doc_id + ".pdf")
-    data = await file.read()
+    try:
+        data = await file.read(MAX_PDF_BYTES + 1)
+    finally:
+        await file.close()
+    if len(data) > MAX_PDF_BYTES:
+        raise HTTPException(413, "Choose a PDF smaller than 50 MB.")
     if not data.startswith(b"%PDF"):
         raise HTTPException(400, "The uploaded file is not a valid PDF.")
+    doc_id = str(uuid.uuid4())
+    path = os.path.join(WORK, doc_id + ".pdf")
     with open(path, "wb") as f:
         f.write(data)
     try:
         doc = fitz.open(path)
-        if doc.needs_pass:
+    except Exception as error:
+        if os.path.exists(path):
             os.remove(path)
-            raise HTTPException(400, "Password-protected PDFs are not supported in this prototype.")
-        page_count = len(doc)
+        raise HTTPException(400, f"Could not open PDF: {error}") from error
+    if doc.needs_pass:
         doc.close()
-    except HTTPException:
-        raise
-    except Exception as e:
-        if os.path.exists(path): os.remove(path)
-        raise HTTPException(400, f"Could not open PDF: {e}")
-    documents[doc_id] = path
+        os.remove(path)
+        raise HTTPException(400, "Password-protected PDFs are not supported in this prototype.")
+    page_count = len(doc)
+    doc.close()
+    with documents_lock:
+        documents[doc_id] = path
+        document_last_access[doc_id] = time.monotonic()
     return {"id": doc_id, "pages": page_count, "filename": file.filename}
 
 @app.get("/api/document/{doc_id}/page/{page_num}")
 def get_page(doc_id: str, page_num: int):
-    path = documents.get(doc_id)
-    if not path or not os.path.exists(path): raise HTTPException(404, "Document not found.")
+    path = get_document_path(doc_id)
     doc = fitz.open(path)
-    if page_num < 0 or page_num >= len(doc):
+    try:
+        if page_num < 0 or page_num >= len(doc):
+            raise HTTPException(404, "Page not found.")
+        pix = doc[page_num].get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+        return Response(content=pix.tobytes("png"), media_type="image/png")
+    finally:
         doc.close()
-        raise HTTPException(404, "Page not found.")
-    page = doc[page_num]
-    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
-    out = os.path.join(WORK, f"{doc_id}-{page_num}.png")
-    pix.save(out)
-    doc.close()
-    return FileResponse(out, media_type="image/png")
 
 @app.get("/api/document/{doc_id}/blocks/{page_num}")
 def get_blocks(doc_id: str, page_num: int):
-    path = documents.get(doc_id)
-    if not path or not os.path.exists(path): raise HTTPException(404, "Document not found.")
+    path = get_document_path(doc_id)
     doc = fitz.open(path)
-    if page_num < 0 or page_num >= len(doc):
+    try:
+        if page_num < 0 or page_num >= len(doc):
+            raise HTTPException(404, "Page not found.")
+        page = doc[page_num]
+        result = get_page_blocks(page)
+    finally:
         doc.close()
-        raise HTTPException(404, "Page not found.")
-    page = doc[page_num]
+    return result
+
+
+def get_page_blocks(page):
     words = page.get_text("words", sort=True)
     spans = []
     raw = page.get_text("dict")
@@ -416,7 +538,6 @@ def get_blocks(doc_id: str, page_num: int):
             "sourceIds": [span["sourceId"] for span in group]
         })
     page_size = {"width": page.rect.width, "height": page.rect.height}
-    doc.close()
     return {"page": page_size, "blocks": result}
 
 def page_text_characters(page):
@@ -563,7 +684,7 @@ def apply_edits(doc, edits):
     prepared = []
     characters_by_page = {}
     target_indices_by_page = {}
-    page_edits = {}
+    pages_with_replacements = set()
 
     for edit in edits:
         page_num = int(edit["page"])
@@ -573,18 +694,30 @@ def apply_edits(doc, edits):
         rect = fitz.Rect(edit["bbox"])
         if not rect.is_valid or rect.is_empty:
             raise HTTPException(400, "The selected text bounds are invalid.")
-        if page_num not in characters_by_page:
-            characters_by_page[page_num] = page_text_characters(page)
-        target_indices = target_character_indices(characters_by_page[page_num], edit, rect)
-        if not target_indices:
-            raise HTTPException(
-                400,
-                "The selected text could not be isolated safely; nothing was removed.",
-            )
-        target_indices_by_page.setdefault(page_num, set()).update(target_indices)
+        is_addition = edit.get("mode") == "add"
+        if is_addition:
+            if not page.rect.contains(rect):
+                raise HTTPException(400, "The writing area must stay inside the page.")
+            if not str(edit.get("text", "")).strip():
+                raise HTTPException(400, "Enter text before adding it to the page.")
+            target_indices = set()
+            raw_text = str(edit.get("text", "")).replace("\r\n", "\n").replace("\r", "\n")
+            lines = raw_text.split("\n")
+        else:
+            if page_num not in characters_by_page:
+                characters_by_page[page_num] = page_text_characters(page)
+            target_indices = target_character_indices(characters_by_page[page_num], edit, rect)
+            if not target_indices:
+                raise HTTPException(
+                    400,
+                    "The selected text could not be isolated safely; nothing was removed.",
+                )
+            target_indices_by_page.setdefault(page_num, set()).update(target_indices)
+            raw_text = " ".join(str(edit.get("text", "")).splitlines())
+            lines = [raw_text]
 
-        new_text = " ".join(str(edit.get("text", "")).splitlines())
-        tokens = new_text.split()
+        line_tokens = [line.split() for line in lines]
+        text_for_font = "\n".join(lines)
         try:
             size = float(edit.get("size", 11))
             original_size = float(edit.get("originalSize", size))
@@ -602,17 +735,23 @@ def apply_edits(doc, edits):
         if align_name not in {"left", "center", "right"}:
             raise HTTPException(400, "Choose left, center, or right alignment.")
         font_flags = int(edit.get("fontFlags", 0))
+        font_choice = edit.get("font", "original")
+        if is_addition and font_choice == "original":
+            font_choice = "helv"
         font_name, font, font_buffer = resolve_edit_font(
-            doc, page, edit.get("font", "original"),
+            doc, page, font_choice,
             edit.get("originalFont", ""), font_cache, font_flags
         )
-        unsupported = [char for char in new_text if not char.isspace() and not font.has_glyph(ord(char))]
-        if unsupported and edit.get("font", "original") == "original":
+        unsupported = [
+            char for char in text_for_font
+            if not char.isspace() and not font.has_glyph(ord(char))
+        ]
+        if unsupported and font_choice == "original":
             system_font = matching_system_font(edit.get("originalFont", ""), font_flags)
             if system_font:
                 font_name, font, font_buffer = resolve_system_font(system_font["id"], font_cache)
                 unsupported = [
-                    char for char in new_text
+                    char for char in text_for_font
                     if not char.isspace() and not font.has_glyph(ord(char))
                 ]
         if unsupported:
@@ -621,7 +760,7 @@ def apply_edits(doc, edits):
                 f"No available font variant supports '{unsupported[0]}'. Choose an installed font with the required characters.",
             )
         try:
-            source_word_gap = edit.get("wordGap")
+            source_word_gap = None if is_addition else edit.get("wordGap")
             source_word_gap = None if source_word_gap is None else float(source_word_gap)
         except (TypeError, ValueError) as error:
             raise HTTPException(400, "Original word spacing is invalid.") from error
@@ -635,7 +774,7 @@ def apply_edits(doc, edits):
         if word_spacing is not None and (not math.isfinite(word_spacing) or word_spacing < 0):
             raise HTTPException(400, "Word spacing must be a finite, nonnegative number.")
 
-        def measure_text(font_size):
+        def measure_lines(font_size):
             gap = (
                 word_spacing
                 if word_spacing is not None
@@ -645,54 +784,105 @@ def apply_edits(doc, edits):
                     else font.text_length(" ", fontsize=font_size)
                 )
             )
-            width = sum(font.text_length(token, fontsize=font_size) for token in tokens)
-            width += gap * max(0, len(tokens) - 1)
-            return width, gap
+            widths = [
+                sum(font.text_length(token, fontsize=font_size) for token in tokens)
+                + gap * max(0, len(tokens) - 1)
+                for tokens in line_tokens
+            ]
+            return widths, gap
 
-        text_width, word_gap = measure_text(size)
-        if text_width > rect.width:
-            if word_spacing is None:
-                size *= rect.width / text_width
+        line_height_factor = 1.2
+        line_widths, word_gap = measure_lines(size)
+        widest_line = max(line_widths, default=0)
+        total_height = size * (1 + max(0, len(line_tokens) - 1) * line_height_factor)
+        width_scale = rect.width / widest_line if widest_line > rect.width and widest_line else 1
+        height_scale = (
+            rect.height / total_height
+            if is_addition and total_height > rect.height
+            else 1
+        )
+        scale = min(width_scale, height_scale)
+        if scale < 1:
+            if is_addition or word_spacing is None:
+                size *= scale
             else:
-                gap_width = word_gap * max(0, len(tokens) - 1)
+                gap_width = word_gap * max(
+                    (len(tokens) - 1 for tokens in line_tokens),
+                    default=0,
+                )
                 available_text_width = rect.width - gap_width
-                unspaced_width = sum(font.text_length(token, fontsize=size) for token in tokens)
+                unspaced_width = max(
+                    (
+                        sum(font.text_length(token, fontsize=size) for token in tokens)
+                        for tokens in line_tokens
+                    ),
+                    default=0,
+                )
                 if available_text_width <= 0 or unspaced_width <= 0:
                     raise HTTPException(400, "Word spacing is too wide for the selected text area.")
-                size *= available_text_width / unspaced_width
+                size *= min(
+                    available_text_width / unspaced_width,
+                    height_scale,
+                )
             if size < 4:
-                raise HTTPException(400, "The replacement is too long to fit in the original text area.")
-            text_width, word_gap = measure_text(size)
-            if word_spacing is not None and text_width > rect.width + 0.01:
+                message = (
+                    "The text is too long to fit in the selected writing area."
+                    if is_addition
+                    else "The replacement is too long to fit in the original text area."
+                )
+                raise HTTPException(400, message)
+            line_widths, word_gap = measure_lines(size)
+            if word_spacing is not None and max(line_widths, default=0) > rect.width + 0.01:
                 raise HTTPException(400, "Word spacing is too wide for the selected text area.")
-        origin = edit.get("origin", [rect.x0, rect.y1])
-        baseline_y = float(origin[1])
-        if align_name == "center":
-            text_x = rect.x0 + (rect.width - text_width) / 2
-        elif align_name == "right":
-            text_x = rect.x1 - text_width
+
+        origin = edit.get("origin")
+        if origin is not None:
+            baseline_y = float(origin[1])
+        elif is_addition:
+            baseline_y = rect.y0 + size
         else:
-            text_x = rect.x0
+            baseline_y = rect.y1
+        if is_addition:
+            baseline_offset = max(0, len(line_tokens) - 1) * size * line_height_factor
+            if baseline_y < rect.y0 + size or baseline_y + baseline_offset > rect.y1:
+                baseline_y = rect.y0 + size
+            last_baseline = baseline_y + baseline_offset
+            if last_baseline > rect.y1 + 0.01:
+                raise HTTPException(400, "The text is too long to fit in the selected writing area.")
+        if align_name == "center":
+            line_starts = [
+                rect.x0 + (rect.width - width) / 2 for width in line_widths
+            ]
+        elif align_name == "right":
+            line_starts = [rect.x1 - width for width in line_widths]
+        else:
+            line_starts = [rect.x0] * len(line_widths)
 
         prepared.append({
             "page": page,
             "page_num": page_num,
-            "edit": edit,
             "rect": rect,
             "target_indices": target_indices,
-            "tokens": tokens,
+            "is_addition": is_addition,
+            "line_tokens": line_tokens,
+            "line_widths": line_widths,
             "font_name": font_name,
             "font": font,
             "font_buffer": font_buffer,
             "font_size": size,
             "color": color,
             "baseline_y": baseline_y,
-            "text_x": text_x,
+            "line_starts": line_starts,
+            "line_height": size * line_height_factor,
             "word_gap": word_gap,
         })
-        page_edits.setdefault(page_num, []).append(prepared[-1])
+        if not is_addition:
+            pages_with_replacements.add(page_num)
 
     for item in prepared:
+        if item["is_addition"]:
+            item["covers"] = []
+            continue
         page_num = item["page_num"]
         item["covers"] = safe_redaction_rects(
             characters_by_page[page_num],
@@ -704,12 +894,12 @@ def apply_edits(doc, edits):
         for cover in item["covers"]:
             item["page"].add_redact_annot(cover, fill=None)
 
-    for page_num in page_edits:
+    for page_num in pages_with_replacements:
         doc[page_num].apply_redactions(images=0, graphics=0, text=0)
 
     inserted_fonts = set()
     for item in prepared:
-        if not item["tokens"]:
+        if not any(item["line_tokens"]):
             continue
         page = item["page"]
         font_name = item["font_name"]
@@ -718,24 +908,24 @@ def apply_edits(doc, edits):
         if font_buffer and font_key_on_page not in inserted_fonts:
             page.insert_font(fontname=font_name, fontbuffer=font_buffer)
             inserted_fonts.add(font_key_on_page)
-        text_x = item["text_x"]
-        for index, token in enumerate(item["tokens"]):
-            page.insert_text(
-                (text_x, item["baseline_y"]),
-                token,
-                fontname=font_name,
-                fontsize=item["font_size"],
-                color=item["color"],
-            )
-            text_x += item["font"].text_length(token, fontsize=item["font_size"])
-            if index < len(item["tokens"]) - 1:
-                text_x += item["word_gap"]
+        for line_index, tokens in enumerate(item["line_tokens"]):
+            text_x = item["line_starts"][line_index]
+            baseline_y = item["baseline_y"] + line_index * item["line_height"]
+            for index, token in enumerate(tokens):
+                page.insert_text(
+                    (text_x, baseline_y),
+                    token,
+                    fontname=font_name,
+                    fontsize=item["font_size"],
+                    color=item["color"],
+                )
+                text_x += item["font"].text_length(token, fontsize=item["font_size"])
+                if index < len(tokens) - 1:
+                    text_x += item["word_gap"]
 
 @app.post("/api/document/{doc_id}/preview/{page_num}")
 def preview_page(doc_id: str, page_num: int, request: EditRequest):
-    source = documents.get(doc_id)
-    if not source or not os.path.exists(source):
-        raise HTTPException(404, "Document not found.")
+    source = get_document_path(doc_id)
     doc = fitz.open(source)
     try:
         if page_num < 0 or page_num >= len(doc):
@@ -752,20 +942,29 @@ def preview_page(doc_id: str, page_num: int, request: EditRequest):
 
 @app.post("/api/document/{doc_id}/export")
 def export_pdf(doc_id: str, request: EditRequest):
-    source = documents.get(doc_id)
-    if not source or not os.path.exists(source): raise HTTPException(404, "Document not found.")
+    source = get_document_path(doc_id)
     # Work on a fresh copy every time, so edits are not cumulatively applied.
     doc = fitz.open(source)
-    out = os.path.join(WORK, doc_id + "-edited.pdf")
     try:
         apply_edits(doc, request.edits)
-        doc.save(out, garbage=4, deflate=True)
+        output = doc.tobytes(garbage=4, deflate=True)
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(400, f"Export failed: {e}")
+    except Exception as error:
+        raise HTTPException(400, f"Export failed: {error}") from error
     finally:
         doc.close()
-    return FileResponse(out, media_type="application/pdf", filename="edited.pdf")
+    return Response(
+        content=output,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="edited.pdf"'},
+    )
 
-app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="static")
+
+@app.delete("/api/document/{doc_id}")
+def close_document(doc_id: str):
+    remove_document(doc_id)
+    return {"status": "closed"}
+
+if os.environ.get("PDF_EDITOR_SERVE_STATIC", "1") == "1":
+    app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="static")

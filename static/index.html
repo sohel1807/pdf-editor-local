@@ -7,9 +7,10 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="pdf-icon">PDF</span><div><b>PDF Editor</b><small>Local document editor</small></div></div>
+  <div class="brand"><span class="pdf-icon">PDF</span><div><b>PDF Editor</b><small>Private document editor</small></div></div>
   <div class="head-actions">
     <label class="open-btn">Open PDF<input id="file" type="file" accept="application/pdf"></label>
+    <button id="close-document" class="secondary" type="button" disabled title="Delete the temporary server copy">Close PDF</button>
     <button id="download" class="primary" disabled>Download edited PDF</button>
   </div>
 </header>
@@ -18,6 +19,8 @@
     <h3>Text on this page</h3>
     <p class="muted">Click text on the page or choose a segment here. Table text may appear as separate items.</p>
     <div id="block-list" class="block-list"><div class="empty">Open a PDF to begin.</div></div>
+    <button id="add-text" class="primary fill-area-button" type="button" disabled>Fill blank area</button>
+    <p id="placement-help" class="muted">Choose Fill blank area, then drag over an area on the page.</p>
     <hr>
     <h3>Text formatting</h3>
     <label>Font
@@ -37,10 +40,10 @@
     <label>Alignment
       <select id="align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
     </label>
-    <label>Replace with
+    <label><span id="replacement-label">Replace with</span>
       <textarea id="replacement" rows="4" placeholder="Select text on the page, then enter replacement text..."></textarea>
     </label>
-    <button id="apply" class="primary" disabled>Apply change</button>
+    <button id="apply" class="primary" disabled>Apply changes</button>
     <div class="history-actions">
       <button id="undo" class="secondary" type="button" disabled>Undo</button>
       <button id="redo" class="secondary" type="button" disabled>Redo</button>
@@ -55,9 +58,10 @@
       <button id="next" disabled>Next →</button>
       <span class="spacer"></span><span id="filename" class="muted">No PDF opened</span>
     </div>
-    <div id="canvas-wrap"><div class="welcome"><div class="big">PDF</div><h2>Open a PDF to start editing</h2><p>Your document is processed by this local application.</p></div></div>
+    <div id="canvas-wrap"><div class="welcome"><div class="big">PDF</div><h2>Open a PDF to start editing</h2><p>Your document is processed temporarily by the configured PDF service.</p></div></div>
   </section>
 </main>
 <div id="toast"></div>
+<script src="/config.js"></script>
 <script src="/app.js"></script>
 </body></html>
