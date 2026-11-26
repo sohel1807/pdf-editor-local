@@ -153,3 +153,67 @@ class RedactionSafetyTests(unittest.TestCase):
 
         self.assertIn("ONE TWO", text)
         self.assertNotIn("A B", text)
+
+    def test_adds_multiline_text_in_a_blank_page_area(self):
+        document = pymupdf.open(self.source_path)
+        try:
+            main.apply_edits(document, [{
+                "mode": "add",
+                "page": 0,
+                "bbox": [240, 24, 390, 72],
+                "text": "Added text\nSecond line",
+                "size": 12,
+                "color": "#000000",
+                "font": "original",
+                "align": "left",
+            }])
+            text = " ".join(document[0].get_text(sort=True).split())
+        finally:
+            document.close()
+
+        self.assertIn("Added text Second line", text)
+        self.assertIn("TARGET", text)
+
+    def test_rejects_added_text_area_outside_page(self):
+        document = pymupdf.open(self.source_path)
+        try:
+            with self.assertRaises(main.HTTPException) as error:
+                main.apply_edits(document, [{
+                    "mode": "add",
+                    "page": 0,
+                    "bbox": [390, 160, 410, 190],
+                    "text": "Out of bounds",
+                    "size": 12,
+                    "color": "#000000",
+                    "font": "original",
+                    "align": "left",
+                }])
+            self.assertIn("inside the page", error.exception.detail)
+            text = document[0].get_text()
+        finally:
+            document.close()
+
+        self.assertNotIn("Out of bounds", text)
+
+    def test_exports_added_text_to_a_new_pdf(self):
+        response = main.export_pdf(
+            self.doc_id,
+            main.EditRequest(edits=[{
+                "mode": "add",
+                "page": 0,
+                "bbox": [240, 24, 390, 72],
+                "text": "Exported note",
+                "size": 12,
+                "color": "#000000",
+                "font": "original",
+                "align": "left",
+            }]),
+        )
+        exported = pymupdf.open(stream=response.body, filetype="pdf")
+        try:
+            text = exported[0].get_text()
+        finally:
+            exported.close()
+
+        self.assertIn("Exported note", text)
+        self.assertIn("TARGET", text)
