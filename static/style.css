@@ -61,7 +61,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .file-input { display: none; }
 
 .upload-screen {
-  min-height: calc(100vh - 72px);
+  min-height: calc(100vh - 72px - 42px);
   display: grid;
   place-items: center;
   padding: 48px 24px;
@@ -95,8 +95,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .file-note { display: inline-block; padding: 5px 9px; border-radius: 20px; background: #f3f5fa; color: #7e899c; font-size: 10px; }
 .privacy-note { margin: 17px 0 0; color: var(--muted); font-size: 11px; }
 .privacy-note span { margin-right: 5px; color: #38a886; font-weight: 800; }
-.app-footer { padding: 12px 16px; color: var(--muted); text-align: center; font-size: 11px; }
-.app-footer a { color: var(--accent); text-decoration: none; }
+.app-footer {
+  position: fixed;
+  z-index: 4;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+.app-footer a { color: var(--accent); font-weight: 700; text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
 
 button, .open-btn {
@@ -124,8 +138,8 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .open-btn > span { font-size: 18px; font-weight: 400; line-height: 1; }
 
 .app-layout {
-  height: calc(100vh - 72px);
-  min-height: 560px;
+  height: calc(100vh - 72px - 42px);
+  min-height: 0;
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
 }
@@ -298,11 +312,11 @@ textarea { min-height: 76px; resize: vertical; }
   .brand-copy small { display: none; }
   .head-actions { gap: 7px; }
   button, .open-btn { min-height: 36px; padding: 8px 10px; font-size: 11px; }
-  .upload-screen { min-height: calc(100vh - 64px); padding: 30px 16px; }
+  .upload-screen { min-height: calc(100vh - 64px - 42px); padding: 30px 16px; }
   .upload-subtitle { margin-bottom: 20px; }
   .drop-zone { min-height: 280px; padding: 28px 16px; }
   .drop-zone h2 { font-size: 17px; }
-  .app-layout { height: auto; min-height: calc(100vh - 64px); display: flex; flex-direction: column; }
+  .app-layout { height: auto; min-height: calc(100vh - 64px - 42px); padding-bottom: 52px; display: flex; flex-direction: column; }
   .workspace { min-height: 62vh; order: 0; }
   .sidebar { order: 1; overflow: visible; border-top: 1px solid var(--line); border-right: 0; }
   .toolbar { min-height: 52px; gap: 9px; padding: 0 11px; }
