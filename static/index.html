@@ -14,14 +14,29 @@
     <span class="brand-copy"><strong>PDF Studio</strong><small>Simple, careful document editing</small></span>
   </div>
   <div class="head-actions">
-    <label class="open-btn">
-      <span aria-hidden="true">＋</span> Open PDF
-      <input id="file" type="file" accept="application/pdf,.pdf">
-    </label>
-    <button id="download" class="primary" type="button" disabled>Download PDF</button>
+    <label id="header-open" class="open-btn" for="file" hidden><span aria-hidden="true">＋</span> Open another PDF</label>
+    <button id="download" class="primary" type="button" disabled hidden>Download PDF</button>
   </div>
 </header>
-<main class="app-layout">
+<input id="file" class="file-input" type="file" accept="application/pdf,.pdf" hidden>
+
+<section id="upload-screen" class="upload-screen">
+  <div class="upload-content">
+    <span class="eyebrow">WELCOME TO PDF STUDIO</span>
+    <h1>Make a change to your PDF.</h1>
+    <p class="upload-subtitle">Start by choosing a document. Your editing tools will open in the next step.</p>
+    <div id="drop-zone" class="drop-zone">
+      <div class="drop-icon" aria-hidden="true">↑</div>
+      <h2>Drag and drop your PDF here</h2>
+      <p>or browse files on your device</p>
+      <label class="open-btn browse-button" for="file"><span aria-hidden="true">＋</span> Choose a PDF</label>
+      <span class="file-note">PDF files up to 50 MB</span>
+    </div>
+    <p class="privacy-note"><span aria-hidden="true">✓</span> You stay in control of your original file.</p>
+  </div>
+</section>
+
+<main id="editor-screen" class="app-layout" hidden>
   <aside class="sidebar">
     <div class="sidebar-heading">
       <span class="eyebrow">EDITING TOOLS</span>
@@ -102,14 +117,7 @@
       <span class="toolbar-divider" aria-hidden="true"></span>
       <span id="filename" class="file-name">Drop a PDF here or open one</span>
     </div>
-    <div id="canvas-wrap">
-      <div class="welcome">
-        <div class="welcome-icon" aria-hidden="true">PDF</div>
-        <h2>Your document, made simple.</h2>
-        <p>Drop a PDF anywhere in this area, or use <strong>Open PDF</strong> above.</p>
-        <span class="file-note">PDF files up to 50 MB</span>
-      </div>
-    </div>
+    <div id="canvas-wrap"></div>
   </section>
 </main>
 <div id="toast" role="status" aria-live="polite"></div>

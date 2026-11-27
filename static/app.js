@@ -117,32 +117,33 @@ async function uploadPdf(f){
   const fd=new FormData();fd.append("file",f);
   const r=await api("/api/upload",{method:"POST",body:fd});const d=await r.json();
   docId=d.id;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;activeTool="edit";additionLocation=null;drawingArea=null;updateHistoryButtons();
-  $("filename").textContent=filename;$("download").disabled=false;$("edit-text").disabled=false;$("add-text").disabled=false;$("replacement").disabled=true;
-  await loadPage();toast("PDF opened successfully.");
+  $("upload-screen").hidden=true;$("editor-screen").hidden=false;$("header-open").hidden=false;
+  $("filename").textContent=filename;$("download").hidden=false;$("download").disabled=false;$("edit-text").disabled=false;$("add-text").disabled=false;$("replacement").disabled=true;
+  await loadPage();loadFonts();toast("PDF opened successfully.");
  }catch(err){toast(err.message)}
 }
 $("file").addEventListener("change",async e=>{
  await uploadPdf(e.target.files[0]);
  e.target.value="";
 });
-const canvasWrap=$("canvas-wrap");
+const dropZone=$("drop-zone");
 function carriesFiles(event){return Array.from(event.dataTransfer?.types||[]).includes("Files")}
-canvasWrap.addEventListener("dragenter",event=>{
+dropZone.addEventListener("dragenter",event=>{
  if(!carriesFiles(event))return;
- event.preventDefault();fileDragDepth++;canvasWrap.classList.add("drop-active");
+ event.preventDefault();fileDragDepth++;dropZone.classList.add("drag-active");
 });
-canvasWrap.addEventListener("dragover",event=>{
+dropZone.addEventListener("dragover",event=>{
  if(!carriesFiles(event))return;
  event.preventDefault();event.dataTransfer.dropEffect="copy";
 });
-canvasWrap.addEventListener("dragleave",event=>{
+dropZone.addEventListener("dragleave",event=>{
  if(!carriesFiles(event))return;
  fileDragDepth=Math.max(0,fileDragDepth-1);
- if(!fileDragDepth)canvasWrap.classList.remove("drop-active");
+ if(!fileDragDepth)dropZone.classList.remove("drag-active");
 });
-canvasWrap.addEventListener("drop",async event=>{
+dropZone.addEventListener("drop",async event=>{
  if(!carriesFiles(event))return;
- event.preventDefault();fileDragDepth=0;canvasWrap.classList.remove("drop-active");
+ event.preventDefault();fileDragDepth=0;dropZone.classList.remove("drag-active");
  await uploadPdf(event.dataTransfer.files[0]);
 });
 async function loadPage(){
@@ -421,4 +422,3 @@ $("download").onclick=async()=>{
  }catch(err){toast(err.message)}
 };
 updateHistoryButtons();
-loadFonts();
