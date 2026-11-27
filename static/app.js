@@ -3,11 +3,12 @@ let docId=null, page=0, pages=0, filename="", blocks=[], pageSize=null, edits={}
 let addingText=false, additionLocation=null, drawingArea=null;
 let previewTimer=null, previewAbort=null, previewUrl=null, previewSequence=0;
 let availableFonts=[];
+const API_BASE_URL=(window.PDF_API_BASE_URL||"").replace(/\/$/,"");
 const keyFor=(p,k)=>`${p}:${k}`;
 const wordSpacingValue=()=>{const value=$("word-spacing").value.trim();return value===""?null:Number(value)};
 function toast(msg){$("toast").textContent=msg;$("toast").style.display="block";setTimeout(()=>$("toast").style.display="none",3200)}
 async function api(url,opts={}){
- const response=await fetch(url,opts);
+ const response=await fetch(`${API_BASE_URL}${url}`,opts);
  if(!response.ok){
   let message="Request failed";
   try{const data=await response.json();message=data.detail||message}catch{}

@@ -1,17 +1,48 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fontTools.ttLib import TTCollection, TTFont, TTLibError
 import fitz
 from functools import lru_cache
 import hashlib, io, logging, math, os, platform, re, uuid
 
-app = FastAPI(title="Simple PDF Editor")
-WORK = os.path.join(os.path.dirname(__file__), "work")
-os.makedirs(WORK, exist_ok=True)
+import modal
+
+# ==========================================================
+# Modal Configuration
+# ==========================================================
+
+app = modal.App("simple-pdf-editor")
+
+pdf_volume = modal.Volume.from_name(
+    "simple-pdf-editor-storage",
+    create_if_missing=True,
+)
+
+# This path is mounted to a persistent Modal Volume at runtime.
+WORK = "/data/work"
+
 logger = logging.getLogger(__name__)
 MAX_PDF_BYTES = 50 * 1024 * 1024
+
+
+# ==========================================================
+# FastAPI Application
+# ==========================================================
+
+fastapi_app = FastAPI(title="Simple PDF Editor")
+
+# The frontend is hosted separately on Vercel.
+# Wildcard origins are used here because this API does not use
+# cookie-based authentication. Add authentication before public production use.
+fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 FONT_ALIASES = {
     "helvetica": "helv", "helveticabold": "hebo", "helveticaoblique": "heit",
@@ -264,24 +295,32 @@ def resolve_edit_font(doc, page, font_choice, original_font, font_cache, origina
     raise HTTPException(400, f"Could not find the original PDF font '{original_font}'. Choose another font.")
 
 
-documents = {}
-
 class EditRequest(BaseModel):
     edits: list[dict]
 
 
 def get_document_path(doc_id):
-    path = documents.get(doc_id)
-    if not path or not os.path.isfile(path):
+    """Resolve a document from the persistent Modal Volume."""
+    try:
+        safe_doc_id = str(uuid.UUID(doc_id))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(400, "Invalid document ID.")
+
+    # Refresh this container's view of the shared Volume before reading.
+    pdf_volume.reload()
+
+    path = os.path.join(WORK, safe_doc_id + ".pdf")
+    if not os.path.isfile(path):
         raise HTTPException(404, "Document not found.")
+
     return path
 
 
-@app.get("/api/health")
+@fastapi_app.get("/api/health")
 def health():
     return {"status": "ok"}
 
-@app.get("/api/fonts")
+@fastapi_app.get("/api/fonts")
 def get_fonts():
     return [
         {
@@ -294,7 +333,7 @@ def get_fonts():
         for entry in system_font_catalog()
     ]
 
-@app.post("/api/upload")
+@fastapi_app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         await file.close()
@@ -307,6 +346,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(413, "Choose a PDF smaller than 50 MB.")
     if not data.startswith(b"%PDF"):
         raise HTTPException(400, "The uploaded file is not a valid PDF.")
+    os.makedirs(WORK, exist_ok=True)
+
     doc_id = str(uuid.uuid4())
     path = os.path.join(WORK, doc_id + ".pdf")
     with open(path, "wb") as f:
@@ -323,10 +364,10 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(400, "Password-protected PDFs are not supported in this prototype.")
     page_count = len(doc)
     doc.close()
-    documents[doc_id] = path
+    pdf_volume.commit()
     return {"id": doc_id, "pages": page_count, "filename": file.filename}
 
-@app.get("/api/document/{doc_id}/page/{page_num}")
+@fastapi_app.get("/api/document/{doc_id}/page/{page_num}")
 def get_page(doc_id: str, page_num: int):
     path = get_document_path(doc_id)
     doc = fitz.open(path)
@@ -338,7 +379,7 @@ def get_page(doc_id: str, page_num: int):
     finally:
         doc.close()
 
-@app.get("/api/document/{doc_id}/blocks/{page_num}")
+@fastapi_app.get("/api/document/{doc_id}/blocks/{page_num}")
 def get_blocks(doc_id: str, page_num: int):
     path = get_document_path(doc_id)
     doc = fitz.open(path)
@@ -818,7 +859,7 @@ def apply_edits(doc, edits):
                 if index < len(tokens) - 1:
                     text_x += item["word_gap"]
 
-@app.post("/api/document/{doc_id}/preview/{page_num}")
+@fastapi_app.post("/api/document/{doc_id}/preview/{page_num}")
 def preview_page(doc_id: str, page_num: int, request: EditRequest):
     source = get_document_path(doc_id)
     doc = fitz.open(source)
@@ -835,7 +876,7 @@ def preview_page(doc_id: str, page_num: int, request: EditRequest):
     finally:
         doc.close()
 
-@app.post("/api/document/{doc_id}/export")
+@fastapi_app.post("/api/document/{doc_id}/export")
 def export_pdf(doc_id: str, request: EditRequest):
     source = get_document_path(doc_id)
     # Work on a fresh copy every time, so edits are not cumulatively applied.
@@ -856,4 +897,37 @@ def export_pdf(doc_id: str, request: EditRequest):
     )
 
 
-app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="static")
+
+# ==========================================================
+# Modal Deployment
+# ==========================================================
+
+modal_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install(
+        "fonts-liberation",
+        "fonts-dejavu-core",
+    )
+    .pip_install(
+        "fastapi",
+        "uvicorn[standard]",
+        "python-multipart",
+        "pydantic",
+        "pymupdf",
+        "fonttools",
+        "modal",
+    )
+)
+
+
+@app.function(
+    image=modal_image,
+    volumes={"/data": pdf_volume},
+    max_containers=1,
+    timeout=900,
+)
+@modal.asgi_app()
+def serve():
+    # The Volume is mounted at /data before this function starts.
+    os.makedirs(WORK, exist_ok=True)
+    return fastapi_app
