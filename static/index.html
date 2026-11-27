@@ -1,66 +1,119 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Simple PDF Editor</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f4f6fb">
+<title>PDF Studio</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header>
-  <div class="brand"><span class="pdf-icon">PDF</span><div><b>PDF Editor</b><small>Private document editor</small></div></div>
+<header class="app-header">
+  <div class="brand">
+    <span class="pdf-icon" aria-hidden="true">PDF</span>
+    <span class="brand-copy"><strong>PDF Studio</strong><small>Simple, careful document editing</small></span>
+  </div>
   <div class="head-actions">
-    <label class="open-btn">Open PDF<input id="file" type="file" accept="application/pdf"></label>
-    <button id="download" class="primary" disabled>Download edited PDF</button>
+    <label class="open-btn">
+      <span aria-hidden="true">＋</span> Open PDF
+      <input id="file" type="file" accept="application/pdf,.pdf">
+    </label>
+    <button id="download" class="primary" type="button" disabled>Download PDF</button>
   </div>
 </header>
-<main>
-  <aside>
-    <h3>Text on this page</h3>
-    <p class="muted">Click text on the page or choose a segment here. Table text may appear as separate items.</p>
-    <div id="block-list" class="block-list"><div class="empty">Open a PDF to begin.</div></div>
-    <button id="add-text" class="primary fill-area-button" type="button" disabled>Fill blank area</button>
-    <p id="placement-help" class="muted">Choose Fill blank area, then drag over an area on the page.</p>
-    <hr>
-    <h3>Text formatting</h3>
-    <label>Font
-      <input id="font-search" type="search" placeholder="Search installed fonts..." autocomplete="off">
-      <select id="font">
-        <option value="original">Original PDF font</option>
-      </select>
-    </label>
-    <div class="two">
-      <label>Size (pt)<input id="size" type="number" min="4" max="96" value="11"></label>
-      <label>Color<input id="color" type="color" value="#000000"></label>
+<main class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-heading">
+      <span class="eyebrow">EDITING TOOLS</span>
+      <h1>Make a change</h1>
+      <p>Choose what you want to do on this page.</p>
     </div>
-    <label>Word spacing (pt)
-      <input id="word-spacing" type="number" min="0" step="0.1" placeholder="Original">
-    </label>
-    <p class="muted">Leave blank to keep the PDF spacing. Enter a value to set the gap between words.</p>
-    <label>Alignment
-      <select id="align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
-    </label>
-    <label><span id="replacement-label">Replace with</span>
-      <textarea id="replacement" rows="4" placeholder="Select text on the page, then enter replacement text..."></textarea>
-    </label>
-    <button id="apply" class="primary" disabled>Apply changes</button>
-    <div class="history-actions">
-      <button id="undo" class="secondary" type="button" disabled>Undo</button>
-      <button id="redo" class="secondary" type="button" disabled>Redo</button>
+
+    <div class="tool-switch" aria-label="Editing mode">
+      <button id="edit-text" class="tool-option active" type="button" aria-pressed="true" disabled>
+        <span class="tool-icon" aria-hidden="true">T</span>
+        <span><strong>Edit text</strong><small>Select existing text to replace</small></span>
+      </button>
+      <button id="add-text" class="tool-option" type="button" aria-pressed="false" disabled>
+        <span class="tool-icon" aria-hidden="true">＋</span>
+        <span><strong>Fill blank area</strong><small>Drag to place new text</small></span>
+      </button>
+      <p id="placement-help" class="muted">Choose Fill blank area, then drag over a blank area on the page.</p>
     </div>
-    <button id="clear" class="secondary">Clear selection</button>
-    <p class="hint">Preview changes as you edit. Apply to keep them; Undo and Redo affect applied changes. If nearby text overlaps, the editor will refuse the edit rather than remove it.</p>
+
+    <section class="text-section" aria-labelledby="page-text-title">
+      <div class="section-heading">
+        <h2 id="page-text-title">Text on this page</h2>
+        <span class="section-hint">Select to edit</span>
+      </div>
+      <p id="selection-help" class="muted">Select text on the page or from this list.</p>
+      <div id="block-list" class="block-list" aria-label="Text on current page">
+        <div class="empty">Open a PDF to get started.</div>
+      </div>
+    </section>
+
+    <section class="format-section" aria-labelledby="format-title">
+      <div class="section-heading">
+        <h2 id="format-title">Text style</h2>
+      </div>
+      <label>Font
+        <input id="font-search" type="search" placeholder="Search fonts..." autocomplete="off">
+        <select id="font">
+          <option value="original">Original PDF font</option>
+        </select>
+      </label>
+      <div class="two">
+        <label>Size
+          <input id="size" type="number" min="4" max="96" value="11">
+        </label>
+        <label>Color
+          <input id="color" type="color" value="#000000">
+        </label>
+      </div>
+      <label>Word spacing
+        <input id="word-spacing" type="number" min="0" step="0.1" placeholder="Keep original">
+      </label>
+      <label>Alignment
+        <select id="align">
+          <option value="left">Left</option>
+          <option value="center">Center</option>
+          <option value="right">Right</option>
+        </select>
+      </label>
+      <label for="replacement"><span id="replacement-label">Replace with</span></label>
+      <textarea id="replacement" rows="3" placeholder="Choose text on the page to start editing..." disabled></textarea>
+      <button id="apply" class="primary apply-button" type="button" disabled>Apply changes</button>
+      <div class="history-actions">
+        <button id="undo" class="secondary" type="button" disabled>Undo</button>
+        <button id="redo" class="secondary" type="button" disabled>Redo</button>
+        <button id="clear" class="secondary" type="button">Clear</button>
+      </div>
+      <p class="hint">Changes are previewed on the page. Download when you’re ready to save.</p>
+    </section>
   </aside>
-  <section class="workspace">
+
+  <section class="workspace" aria-label="PDF page workspace">
     <div class="toolbar">
-      <button id="prev" disabled>← Previous</button>
-      <span id="page-label">Page – / –</span>
-      <button id="next" disabled>Next →</button>
-      <span class="spacer"></span><span id="filename" class="muted">No PDF opened</span>
+      <div class="page-navigation" aria-label="Page navigation">
+        <button id="prev" class="page-button" type="button" aria-label="Previous page" disabled>‹</button>
+        <span id="page-label" aria-live="polite">No document</span>
+        <button id="next" class="page-button" type="button" aria-label="Next page" disabled>›</button>
+      </div>
+      <span class="toolbar-divider" aria-hidden="true"></span>
+      <span id="filename" class="file-name">Drop a PDF here or open one</span>
     </div>
-    <div id="canvas-wrap"><div class="welcome"><div class="big">PDF</div><h2>Open a PDF to start editing</h2><p>Your document is processed temporarily by the configured PDF service.</p></div></div>
+    <div id="canvas-wrap">
+      <div class="welcome">
+        <div class="welcome-icon" aria-hidden="true">PDF</div>
+        <h2>Your document, made simple.</h2>
+        <p>Drop a PDF anywhere in this area, or use <strong>Open PDF</strong> above.</p>
+        <span class="file-note">PDF files up to 50 MB</span>
+      </div>
+    </div>
   </section>
 </main>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <script src="/config.js"></script>
 <script src="/app.js"></script>
-</body></html>
+</body>
+</html>

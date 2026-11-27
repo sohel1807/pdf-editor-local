@@ -3,6 +3,7 @@ let docId=null, page=0, pages=0, filename="", blocks=[], pageSize=null, edits={}
 let addingText=false, additionLocation=null, drawingArea=null;
 let previewTimer=null, previewAbort=null, previewUrl=null, previewSequence=0;
 let availableFonts=[];
+let activeTool="edit", fileDragDepth=0;
 const API_BASE_URL=(window.PDF_API_BASE_URL||"").replace(/\/$/,"");
 const keyFor=(p,k)=>`${p}:${k}`;
 const wordSpacingValue=()=>{const value=$("word-spacing").value.trim();return value===""?null:Number(value)};
@@ -22,6 +23,18 @@ function copyEdits(source){
  return copy;
 }
 function updateHistoryButtons(){$("undo").disabled=undoStack.length===0;$("redo").disabled=redoStack.length===0}
+function updateToolButtons(){
+ const filling=activeTool==="fill";
+ $("edit-text").classList.toggle("active",!filling);
+ $("edit-text").setAttribute("aria-pressed",String(!filling));
+ $("add-text").classList.toggle("active",filling);
+ $("add-text").setAttribute("aria-pressed",String(filling));
+ $("block-list").classList.toggle("is-disabled",filling);
+ $("block-list").setAttribute("aria-disabled",String(filling));
+ $("selection-help").textContent=filling
+  ?"Text selection is off while filling a blank area."
+  :"Select text on the page or from this list.";
+}
 function renderFontOptions(){
  const select=$("font"),selected=select.value||"original";
  const query=$("font-search").value.trim().toLocaleLowerCase();
@@ -40,7 +53,7 @@ async function loadFonts(){
  }catch(error){toast(`Installed fonts could not be loaded: ${error.message}`)}
 }
 function refreshPage(){
- renderBlocks();renderPageTargets(document.querySelector(".text-overlay"));renderPagePreviews();updateHistoryButtons();
+ updateToolButtons();renderBlocks();renderPageTargets(document.querySelector(".text-overlay"));renderPagePreviews();updateHistoryButtons();
 }
 function loadSelectedBlock(b){
  const staged=edits[keyFor(page,b.key)];
@@ -49,6 +62,7 @@ function loadSelectedBlock(b){
  $("replacement-label").textContent="Replace with";
  $("replacement").placeholder="Select text on the page, then enter replacement text...";
  $("replacement").value=staged?staged.text:b.text;
+ $("replacement").disabled=false;
  $("size").value=staged?.size??b.size;
  $("color").value=staged?.color??b.color;
  $("font").value=staged?.font??"original";
@@ -59,10 +73,11 @@ function loadSelectedBlock(b){
 function loadAddedText(key){
  const edit=edits[key];
  if(!edit)return;
- selectedAdditionKey=key;selectedKey=null;additionLocation=null;addingText=false;drawingArea=null;draftChanged=false;
+ selectedAdditionKey=key;selectedKey=null;additionLocation=null;addingText=false;activeTool="edit";drawingArea=null;draftChanged=false;
  $("replacement-label").textContent="Edit added text";
  $("replacement").placeholder="Edit the text in this blue area...";
  $("replacement").value=edit.text;
+ $("replacement").disabled=false;
  $("size").value=edit.size??11;
  $("color").value=edit.color??"#000000";
  $("font").value=edit.font??"original";
@@ -94,16 +109,41 @@ function changeHistory(from,to,message){
  if(!selectedAdditionKey&&selected)loadSelectedBlock(selected);
  refreshPage();toast(message);
 }
-$("file").addEventListener("change",async e=>{
- const f=e.target.files[0];if(!f)return;
+async function uploadPdf(f){
+ if(!f)return;
+ if(f.type!=="application/pdf"&&!f.name.toLowerCase().endsWith(".pdf")){toast("Please choose a PDF file.");return}
  if(f.size>50*1024*1024){toast("For this prototype, choose a PDF smaller than 50 MB.");return}
  try{
   const fd=new FormData();fd.append("file",f);
   const r=await api("/api/upload",{method:"POST",body:fd});const d=await r.json();
-  docId=d.id;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;updateHistoryButtons();
-  $("filename").textContent=filename;$("download").disabled=false;$("add-text").disabled=false;$("prev").disabled=false;$("next").disabled=pages<2;
+  docId=d.id;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;activeTool="edit";additionLocation=null;drawingArea=null;updateHistoryButtons();
+  $("filename").textContent=filename;$("download").disabled=false;$("edit-text").disabled=false;$("add-text").disabled=false;$("replacement").disabled=true;
   await loadPage();toast("PDF opened successfully.");
  }catch(err){toast(err.message)}
+}
+$("file").addEventListener("change",async e=>{
+ await uploadPdf(e.target.files[0]);
+ e.target.value="";
+});
+const canvasWrap=$("canvas-wrap");
+function carriesFiles(event){return Array.from(event.dataTransfer?.types||[]).includes("Files")}
+canvasWrap.addEventListener("dragenter",event=>{
+ if(!carriesFiles(event))return;
+ event.preventDefault();fileDragDepth++;canvasWrap.classList.add("drop-active");
+});
+canvasWrap.addEventListener("dragover",event=>{
+ if(!carriesFiles(event))return;
+ event.preventDefault();event.dataTransfer.dropEffect="copy";
+});
+canvasWrap.addEventListener("dragleave",event=>{
+ if(!carriesFiles(event))return;
+ fileDragDepth=Math.max(0,fileDragDepth-1);
+ if(!fileDragDepth)canvasWrap.classList.remove("drop-active");
+});
+canvasWrap.addEventListener("drop",async event=>{
+ if(!carriesFiles(event))return;
+ event.preventDefault();fileDragDepth=0;canvasWrap.classList.remove("drop-active");
+ await uploadPdf(event.dataTransfer.files[0]);
 });
 async function loadPage(){
  if(!docId)return;
@@ -120,9 +160,10 @@ async function loadPage(){
  if(pageImageUrl)URL.revokeObjectURL(pageImageUrl);
  pageImageUrl=imageUrl;img.src=imageUrl;
  const r=await api(`/api/document/${docId}/blocks/${page}`);const data=await r.json();
- blocks=data.blocks;pageSize=data.page;renderBlocks();renderPageTargets(overlay);renderPagePreviews();
+ blocks=data.blocks;pageSize=data.page;updateToolButtons();renderBlocks();renderPageTargets(overlay);renderPagePreviews();
 }
 function renderBlocks(){
+ updateToolButtons();
  const list=$("block-list");list.innerHTML="";
  if(!blocks.length){list.innerHTML='<div class="empty">No selectable text found on this page. It may be scanned.</div>';return}
  blocks.forEach(b=>{
@@ -170,6 +211,7 @@ function renderPageTargets(overlay){
   addingText=false;selectedKey=null;draftChanged=false;
   $("replacement-label").textContent="Text to add";
   $("replacement").placeholder="Enter the text to place in the selected area...";
+  $("replacement").disabled=false;
   $("apply").disabled=!$("replacement").value.trim();
   $("placement-help").textContent="Area selected. Enter text, then click Apply changes.";
   renderPageTargets(overlay);renderPagePreviews();$("replacement").focus({preventScroll:true});
@@ -179,31 +221,33 @@ function renderPageTargets(overlay){
   drawingArea=null;updatePlacementMarker(overlay);
  };
  updatePlacementMarker(overlay);
- blocks.forEach(b=>{
-  const [x0,y0,x1,y1]=b.bbox;
-  const target=document.createElement("button");target.type="button";
-  target.className="text-target"+(selectedKey===b.key?" active":"");
-  target.style.left=`${x0/pageSize.width*100}%`;
-  target.style.top=`${y0/pageSize.height*100}%`;
-  target.style.width=`${(x1-x0)/pageSize.width*100}%`;
-  target.style.height=`${(y1-y0)/pageSize.height*100}%`;
-  target.title=b.text;target.setAttribute("aria-label",`Edit text: ${b.text}`);
-  target.onclick=()=>selectBlock(b);overlay.appendChild(target);
- });
- Object.entries(edits).forEach(([key,edit])=>{
-  if(edit.mode!=="add"||edit.page!==page)return;
-  const [x0,y0,x1,y1]=edit.bbox;
-  const target=document.createElement("button");target.type="button";
-  target.className="added-text-target"+(selectedAdditionKey===key?" active":"");
-  target.style.left=`${x0/pageSize.width*100}%`;
-  target.style.top=`${y0/pageSize.height*100}%`;
-  target.style.width=`${(x1-x0)/pageSize.width*100}%`;
-  target.style.height=`${(y1-y0)/pageSize.height*100}%`;
-  target.title="Click to edit added text";
-  target.setAttribute("aria-label",`Edit added text: ${edit.text}`);
-  target.onclick=()=>{loadAddedText(key);refreshPage()};
-  overlay.appendChild(target);
- });
+ if(activeTool==="edit"){
+  blocks.forEach(b=>{
+   const [x0,y0,x1,y1]=b.bbox;
+   const target=document.createElement("button");target.type="button";
+   target.className="text-target"+(selectedKey===b.key?" active":"");
+   target.style.left=`${x0/pageSize.width*100}%`;
+   target.style.top=`${y0/pageSize.height*100}%`;
+   target.style.width=`${(x1-x0)/pageSize.width*100}%`;
+   target.style.height=`${(y1-y0)/pageSize.height*100}%`;
+   target.title=b.text;target.setAttribute("aria-label",`Edit text: ${b.text}`);
+   target.onclick=()=>selectBlock(b);overlay.appendChild(target);
+  });
+  Object.entries(edits).forEach(([key,edit])=>{
+   if(edit.mode!=="add"||edit.page!==page)return;
+   const [x0,y0,x1,y1]=edit.bbox;
+   const target=document.createElement("button");target.type="button";
+   target.className="added-text-target"+(selectedAdditionKey===key?" active":"");
+   target.style.left=`${x0/pageSize.width*100}%`;
+   target.style.top=`${y0/pageSize.height*100}%`;
+   target.style.width=`${(x1-x0)/pageSize.width*100}%`;
+   target.style.height=`${(y1-y0)/pageSize.height*100}%`;
+   target.title="Click to edit added text";
+   target.setAttribute("aria-label",`Edit added text: ${edit.text}`);
+   target.onclick=()=>{loadAddedText(key);refreshPage()};
+   overlay.appendChild(target);
+  });
+ }
 }
 function placementBounds(area){
  return [
@@ -294,6 +338,7 @@ function renderPagePreviews(){
  },180);
 }
 function selectBlock(b){
+ if(activeTool!=="edit")return;
  addingText=false;additionLocation=null;drawingArea=null;selectedAdditionKey=null;selectedKey=b.key;loadSelectedBlock(b);
  $("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";
  refreshPage();
@@ -309,12 +354,20 @@ $("font-search").addEventListener("input",renderFontOptions);
  $("apply").disabled=additionLocation||selectedAdditionKey?!$("replacement").value.trim():!selectedKey;
  renderPagePreviews();
 }));
+$("edit-text").onclick=()=>{
+ activeTool="edit";addingText=false;additionLocation=null;drawingArea=null;selectedKey=null;selectedAdditionKey=null;draftChanged=false;
+ $("replacement-label").textContent="Replace with";
+ $("replacement").value="";$("replacement").placeholder="Choose text on the page to start editing...";
+ $("replacement").disabled=true;$("apply").disabled=true;
+ $("placement-help").textContent="Choose Fill blank area, then drag over a blank area on the page.";
+ refreshPage();
+};
 $("add-text").onclick=()=>{
- addingText=true;additionLocation=null;drawingArea=null;selectedKey=null;selectedAdditionKey=null;draftChanged=false;
+ activeTool="fill";addingText=true;additionLocation=null;drawingArea=null;selectedKey=null;selectedAdditionKey=null;draftChanged=false;
  $("replacement-label").textContent="Text to add";
  $("replacement").value="";$("replacement").placeholder="Drag over a blank area on the page to select it...";
- $("apply").disabled=true;$("placement-help").textContent="Drag over the blank area where you want the new text.";
- renderPageTargets(document.querySelector(".text-overlay"));renderPagePreviews();
+ $("replacement").disabled=true;$("apply").disabled=true;$("placement-help").textContent="Drag over the blank area where you want the new text.";
+ refreshPage();
 };
 $("apply").onclick=()=>{
  if(additionLocation){
@@ -327,7 +380,7 @@ $("apply").onclick=()=>{
    color:$("color").value,font:$("font").value,
    wordSpacing:wordSpacingValue(),align:$("align").value
   };
-  selectedAdditionKey=null;additionLocation=null;addingText=false;drawingArea=null;draftChanged=false;
+  selectedAdditionKey=null;additionLocation=null;addingText=false;activeTool="edit";drawingArea=null;draftChanged=false;
   $("replacement-label").textContent="Edit added text";
   $("replacement").placeholder="Edit the text in this blue area...";
   $("apply").disabled=true;$("placement-help").textContent="Added text is saved. Click it on the page to edit it again.";
@@ -354,9 +407,9 @@ $("apply").onclick=()=>{
 };
 $("undo").onclick=()=>changeHistory(undoStack,redoStack,"Last applied change undone.");
 $("redo").onclick=()=>changeHistory(redoStack,undoStack,"Change restored.");
-$("clear").onclick=()=>{selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("replacement").value="";$("replacement").placeholder="Select text on the page, then enter replacement text...";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";refreshPage()};
-$("prev").onclick=async()=>{if(page>0){page--;selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";await loadPage()}};
-$("next").onclick=async()=>{if(page<pages-1){page++;selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";await loadPage()}};
+$("clear").onclick=()=>{selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;activeTool="edit";additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("replacement").value="";$("replacement").disabled=true;$("replacement").placeholder="Choose text on the page to start editing...";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";refreshPage()};
+$("prev").onclick=async()=>{if(page>0){page--;selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;activeTool="edit";additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("replacement").value="";$("replacement").disabled=true;$("replacement").placeholder="Choose text on the page to start editing...";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";await loadPage()}};
+$("next").onclick=async()=>{if(page<pages-1){page++;selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;activeTool="edit";additionLocation=null;drawingArea=null;$("replacement-label").textContent="Replace with";$("replacement").value="";$("replacement").disabled=true;$("replacement").placeholder="Choose text on the page to start editing...";$("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over an area on the page.";await loadPage()}};
 $("download").onclick=async()=>{
  if(!docId)return;
  try{
