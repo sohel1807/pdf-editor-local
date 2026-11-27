@@ -67,8 +67,14 @@
       </div>
     </section>
 
-    <section class="format-section" aria-labelledby="format-title">
+    <section class="format-section" aria-label="Text content and style">
       <div class="section-heading">
+        <h2 id="text-content-title">Text</h2>
+      </div>
+      <label for="replacement"><span id="replacement-label">Replace with</span></label>
+      <textarea id="replacement" rows="3" placeholder="Choose text on the page to start editing..." disabled></textarea>
+
+      <div class="section-heading style-heading">
         <h2 id="format-title">Text style</h2>
       </div>
       <label>Font
@@ -95,13 +101,11 @@
           <option value="right">Right</option>
         </select>
       </label>
-      <label for="replacement"><span id="replacement-label">Replace with</span></label>
-      <textarea id="replacement" rows="3" placeholder="Choose text on the page to start editing..." disabled></textarea>
       <button id="apply" class="primary apply-button" type="button" disabled>Apply changes</button>
       <div class="history-actions">
         <button id="undo" class="secondary" type="button" disabled>Undo</button>
         <button id="redo" class="secondary" type="button" disabled>Redo</button>
-        <button id="clear" class="secondary" type="button">Clear</button>
+        <button id="clear" class="secondary" type="button">Clear selection</button>
       </div>
       <p class="hint">Changes are previewed on the page. Download when you’re ready to save.</p>
     </section>
