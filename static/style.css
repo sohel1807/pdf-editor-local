@@ -95,6 +95,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .file-note { display: inline-block; padding: 5px 9px; border-radius: 20px; background: #f3f5fa; color: #7e899c; font-size: 10px; }
 .privacy-note { margin: 17px 0 0; color: var(--muted); font-size: 11px; }
 .privacy-note span { margin-right: 5px; color: #38a886; font-weight: 800; }
+.app-footer { padding: 12px 16px; color: var(--muted); text-align: center; font-size: 11px; }
+.app-footer a { color: var(--accent); text-decoration: none; }
+.app-footer a:hover { text-decoration: underline; }
 
 button, .open-btn {
   min-height: 40px;
