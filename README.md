@@ -4,7 +4,7 @@ A small browser-based PDF text editor for testing on a company laptop.
 
 ## Uploaded PDF retention
 
-When deployed to Modal, uploaded PDFs are stored in the `simple-pdf-editor-storage` Volume under `/data/work`. A scheduled cleanup runs hourly and removes app-uploaded PDFs once they are at least 24 hours old, so removal can occur up to about 25 hours after upload. Redeploy the Modal app to activate the cleanup schedule.
+When deployed to Modal, uploaded PDFs are stored in the `simple-pdf-editor-storage` Volume under `/data/work`. The editor includes an option to delete the current upload immediately, and a scheduled cleanup removes app-uploaded PDFs automatically. Redeploy the Modal app to activate the cleanup schedule.
 
 ## What it does
 - Opens a PDF from your computer.

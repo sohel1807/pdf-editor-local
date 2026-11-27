@@ -115,6 +115,8 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .primary:not(:disabled):hover, .open-btn:hover { background: var(--accent-dark); box-shadow: 0 5px 12px rgb(85 70 215 / 20%); }
 .secondary { color: #59667b; background: #f5f7fb; border-color: var(--line); }
 .secondary:not(:disabled):hover { color: var(--ink); background: #edf0f7; }
+.danger { color: #ae3434; background: #fff3f2; border-color: #f6d5d2; }
+.danger:not(:disabled):hover { color: #922626; background: #ffe8e5; border-color: #edbdb7; }
 .open-btn { white-space: nowrap; }
 .open-btn > span { font-size: 18px; font-weight: 400; line-height: 1; }
 

@@ -317,6 +317,17 @@ def get_document_path(doc_id):
     return path
 
 
+@fastapi_app.delete("/api/document/{doc_id}", status_code=204)
+def delete_document(doc_id: str):
+    path = get_document_path(doc_id)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        raise HTTPException(404, "Document not found.")
+    pdf_volume.commit()
+    return Response(status_code=204)
+
+
 def remove_expired_pdf_files(directory, now=None):
     if now is None:
         now = time.time()

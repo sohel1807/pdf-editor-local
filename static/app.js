@@ -118,7 +118,7 @@ async function uploadPdf(f){
   const r=await api("/api/upload",{method:"POST",body:fd});const d=await r.json();
   docId=d.id;pages=d.pages;page=0;filename=f.name;edits={};undoStack=[];redoStack=[];selectedKey=null;selectedAdditionKey=null;draftChanged=false;addingText=false;activeTool="edit";additionLocation=null;drawingArea=null;updateHistoryButtons();
   $("upload-screen").hidden=true;$("editor-screen").hidden=false;$("header-open").hidden=false;
-  $("filename").textContent=filename;$("download").hidden=false;$("download").disabled=false;$("edit-text").disabled=false;$("add-text").disabled=false;$("replacement").disabled=true;
+  $("filename").textContent=filename;$("download").hidden=false;$("download").disabled=false;$("delete-document").hidden=false;$("delete-document").disabled=false;$("edit-text").disabled=false;$("add-text").disabled=false;$("replacement").disabled=true;
   await loadPage();loadFonts();toast("PDF opened successfully.");
  }catch(err){toast(err.message)}
 }
@@ -420,5 +420,35 @@ $("download").onclick=async()=>{
   a.href=url;a.download=filename.replace(/\.pdf$/i,"")+"_edited.pdf";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
   toast("Edited PDF downloaded.");
  }catch(err){toast(err.message)}
+};
+$("delete-document").onclick=async()=>{
+ if(!docId)return;
+ if(!window.confirm("Delete this PDF from the server? Your current edits will be lost."))return;
+ const deletingId=docId;
+ $("delete-document").disabled=true;
+ clearTimeout(previewTimer);
+ if(previewAbort)previewAbort.abort();
+ try{
+  await api(`/api/document/${deletingId}`,{method:"DELETE"});
+  docId=null;page=0;pages=0;filename="";blocks=[];pageSize=null;edits={};
+  selectedKey=null;selectedAdditionKey=null;draftChanged=false;undoStack=[];redoStack=[];
+  addingText=false;activeTool="edit";additionLocation=null;drawingArea=null;previewSequence++;
+  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null}
+  if(pageImageUrl){URL.revokeObjectURL(pageImageUrl);pageImageUrl=null}
+  previewAbort=null;
+  $("canvas-wrap").replaceChildren();$("file").value="";
+  $("upload-screen").hidden=false;$("editor-screen").hidden=true;$("header-open").hidden=true;
+  $("download").hidden=true;$("download").disabled=true;$("delete-document").hidden=true;
+  $("edit-text").disabled=true;$("add-text").disabled=true;
+  $("filename").textContent="Drop a PDF here or open one";$("page-label").textContent="No document";
+  $("prev").disabled=true;$("next").disabled=true;
+  $("replacement-label").textContent="Replace with";$("replacement").value="";
+  $("replacement").placeholder="Choose text on the page to start editing...";$("replacement").disabled=true;
+  $("apply").disabled=true;$("placement-help").textContent="Choose Fill blank area, then drag over a blank area on the page.";
+  updateToolButtons();updateHistoryButtons();toast("PDF deleted from storage.");
+ }catch(error){
+  $("delete-document").disabled=false;
+  toast(`Could not delete PDF: ${error.message}`);
+ }
 };
 updateHistoryButtons();
