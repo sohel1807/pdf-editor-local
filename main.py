@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from fontTools.ttLib import TTCollection, TTFont, TTLibError
 import fitz
 from functools import lru_cache
-import hashlib, io, logging, math, os, platform, re, uuid
+import hashlib, io, logging, math, os, platform, re, time, uuid
 
 import modal
 
@@ -25,6 +25,7 @@ WORK = "/data/work"
 
 logger = logging.getLogger(__name__)
 MAX_PDF_BYTES = 50 * 1024 * 1024
+PDF_RETENTION_SECONDS = 24 * 60 * 60
 
 
 # ==========================================================
@@ -314,6 +315,40 @@ def get_document_path(doc_id):
         raise HTTPException(404, "Document not found.")
 
     return path
+
+
+def remove_expired_pdf_files(directory, now=None):
+    if now is None:
+        now = time.time()
+    cutoff = now - PDF_RETENTION_SECONDS
+    removed = 0
+
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            stem, extension = os.path.splitext(entry.name)
+            if extension.lower() != ".pdf":
+                continue
+            try:
+                if str(uuid.UUID(stem)) != stem:
+                    continue
+            except ValueError:
+                continue
+
+            try:
+                modified_at = entry.stat(follow_symlinks=False).st_mtime
+            except FileNotFoundError:
+                continue
+            if modified_at > cutoff:
+                continue
+            try:
+                os.remove(entry.path)
+            except FileNotFoundError:
+                continue
+            removed += 1
+
+    return removed
 
 
 @fastapi_app.get("/api/health")
@@ -931,3 +966,20 @@ def serve():
     # The Volume is mounted at /data before this function starts.
     os.makedirs(WORK, exist_ok=True)
     return fastapi_app
+
+
+@app.function(
+    image=modal_image,
+    volumes={"/data": pdf_volume},
+    schedule=modal.Period(hours=1),
+    max_containers=1,
+    timeout=300,
+)
+def cleanup_old_volume_pdfs():
+    os.makedirs(WORK, exist_ok=True)
+    pdf_volume.reload()
+    removed = remove_expired_pdf_files(WORK)
+    if removed:
+        pdf_volume.commit()
+        logger.info("Removed %d expired PDF(s) from the Modal Volume.", removed)
+    return removed
